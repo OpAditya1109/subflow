@@ -1,0 +1,671 @@
+{% comment %}
+  SubFlow — Subscribe & Save Widget (CONVERSION OPTIMIZED)
+  Target: product page (product block)
+  Fetches plan dynamically from /api/plans — discount & frequencies driven by plan.
+{% endcomment %}
+
+{% assign app_url = block.settings.app_url %}
+{% assign subscriber_count = block.settings.subscriber_count %}
+
+<div
+  id="subflow-widget-{{ block.id }}"
+  class="subflow-widget-v4"
+  data-app-url="{{ app_url }}"
+  data-shop="{{ shop.permanent_domain }}"
+  data-product-id="{{ product.id }}"
+  data-product-title="{{ product.title | escape }}"
+  data-variant-id="{{ product.selected_or_first_available_variant.id }}"
+  data-variant-title="{{ product.selected_or_first_available_variant.title | escape }}"
+  data-price="{{ product.selected_or_first_available_variant.price | money_without_currency }}"
+  data-currency="{{ cart.currency.iso_code }}"
+  {{ block.shopify_attributes }}
+>
+
+  <style>
+    #subflow-widget-{{ block.id }} {
+      --sf-accent: #2563eb;
+      --sf-accent-dark: #1d4ed8;
+      --sf-radius: 12px;
+      --sf-radius-sm: 8px;
+      --sf-text-primary: #1a202c;
+      --sf-text-secondary: #718096;
+      --sf-bg: #ffffff;
+      --sf-bg-light: #f7fafc;
+      --sf-border: #e2e8f0;
+      --sf-success: #16a34a;
+      --sf-error: #dc2626;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    }
+
+    /* ===== CTA BUTTON ===== */
+    .sf-cta-button {
+      width: 100%;
+      background: var(--sf-accent);
+      color: white;
+      border: none;
+      border-radius: var(--sf-radius-sm);
+      padding: 13px 24px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: opacity 0.2s;
+      margin: 16px 0;
+      display: block;
+    }
+    .sf-cta-button:hover { opacity: 0.9; }
+
+    /* ===== MODAL ===== */
+    .sf-modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+      z-index: 9998;
+      align-items: center;
+      justify-content: center;
+    }
+    .sf-modal-overlay.active { display: flex; }
+
+    .sf-modal {
+      background: var(--sf-bg);
+      border-radius: var(--sf-radius);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.2);
+      max-width: 460px;
+      width: 92%;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .sf-modal-close {
+      position: absolute;
+      top: 12px; right: 12px;
+      background: rgba(255,255,255,0.2);
+      border: none;
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      z-index: 10;
+      transition: background 0.2s;
+    }
+    .sf-modal-close:hover { background: rgba(255,255,255,0.3); }
+
+    /* ===== HERO ===== */
+    .sf-hero {
+      background: var(--sf-accent);
+      padding: 20px 20px 16px;
+      color: white;
+    }
+    .sf-hero-discount {
+      font-size: 36px;
+      font-weight: 700;
+      line-height: 1;
+      margin: 0 0 4px;
+    }
+    .sf-hero-title {
+      font-size: 14px;
+      font-weight: 500;
+      margin: 0 0 3px;
+      opacity: 0.95;
+    }
+    .sf-hero-note {
+      font-size: 12px;
+      margin: 0;
+      opacity: 0.8;
+    }
+
+    /* ===== STATS ROW ===== */
+    .sf-stats {
+      display: flex;
+      align-items: stretch;
+      border-bottom: 1px solid var(--sf-border);
+    }
+    .sf-stat {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 8px;
+      gap: 2px;
+    }
+    .sf-stat + .sf-stat { border-left: 1px solid var(--sf-border); }
+    .sf-stat-val {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--sf-text-primary);
+    }
+    .sf-stat-lbl {
+      font-size: 11px;
+      color: var(--sf-text-secondary);
+    }
+    .sf-stat-pill {
+      background: var(--sf-bg-light);
+      border: 1px solid var(--sf-border);
+      border-radius: 20px;
+      padding: 3px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--sf-text-primary);
+      white-space: nowrap;
+    }
+    .sf-stat:nth-child(2) .sf-stat-pill {
+      color: #f59e0b;
+      font-size: 12px;
+      letter-spacing: 1px;
+    }
+
+    /* ===== MODAL BODY ===== */
+    .sf-body { padding: 16px 20px 20px; }
+
+    .sf-section-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--sf-text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+      display: block;
+    }
+
+    /* ===== FREQUENCY — SINGLE ROW ===== */
+    .sf-freq-row {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 14px;
+      flex-wrap: nowrap;
+    }
+    .sf-freq-btn {
+      flex: 1;
+      padding: 8px 4px;
+      border: 1px solid var(--sf-border);
+      border-radius: var(--sf-radius-sm);
+      background: var(--sf-bg);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--sf-text-secondary);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s;
+      text-align: center;
+      font-family: inherit;
+    }
+    .sf-freq-btn:hover {
+      border-color: var(--sf-accent);
+      color: var(--sf-accent);
+    }
+    .sf-freq-btn.selected {
+      background: var(--sf-accent);
+      border-color: var(--sf-accent);
+      color: white;
+      font-weight: 600;
+    }
+
+    /* ===== BENEFITS ===== */
+    .sf-benefits {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-bottom: 14px;
+    }
+    .sf-benefit {
+      display: flex;
+      align-items: flex-start;
+      gap: 7px;
+      font-size: 12px;
+      color: var(--sf-text-secondary);
+    }
+    .sf-check {
+      color: var(--sf-success);
+      font-weight: 700;
+      flex-shrink: 0;
+      font-size: 13px;
+      margin-top: 1px;
+    }
+
+    /* ===== FORM ===== */
+    .sf-fields {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .sf-field { display: flex; flex-direction: column; gap: 4px; }
+    .sf-field-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--sf-text-primary);
+    }
+    .sf-required { color: var(--sf-error); }
+    .sf-input {
+      padding: 8px 10px;
+      border: 1px solid var(--sf-border);
+      border-radius: var(--sf-radius-sm);
+      font-size: 13px;
+      font-family: inherit;
+      color: var(--sf-text-primary);
+      background: var(--sf-bg);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .sf-input:focus {
+      border-color: var(--sf-accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+    .sf-input::placeholder { color: var(--sf-text-secondary); }
+    .sf-phone-row { display: flex; gap: 6px; }
+    .sf-select {
+      width: 64px;
+      flex-shrink: 0;
+      padding: 8px 6px;
+      border: 1px solid var(--sf-border);
+      border-radius: var(--sf-radius-sm);
+      font-size: 13px;
+      font-family: inherit;
+      color: var(--sf-text-primary);
+      background: var(--sf-bg);
+      outline: none;
+      cursor: pointer;
+    }
+    .sf-select:focus {
+      border-color: var(--sf-accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    /* ===== SUBMIT ===== */
+    .sf-submit-btn {
+      width: 100%;
+      background: var(--sf-accent);
+      color: white;
+      border: none;
+      border-radius: var(--sf-radius-sm);
+      padding: 11px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: opacity 0.2s;
+    }
+    .sf-submit-btn:hover:not(:disabled) { opacity: 0.9; }
+    .sf-submit-btn:disabled { opacity: 0.65; cursor: not-allowed; }
+
+    /* ===== MESSAGES ===== */
+    .sf-msg {
+      border-radius: var(--sf-radius-sm);
+      font-size: 13px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      display: none;
+    }
+    .sf-msg.success {
+      background: #dcfce7;
+      color: #166534;
+      border: 1px solid #bbf7d0;
+      display: block;
+    }
+    .sf-msg.error {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+      display: block;
+    }
+
+    .sf-note {
+      font-size: 11px;
+      color: var(--sf-text-secondary);
+      text-align: center;
+      margin-top: 10px;
+      line-height: 1.5;
+    }
+
+    /* ===== RESPONSIVE ===== */
+    @media (max-width: 400px) {
+      .sf-freq-btn { font-size: 11px; padding: 7px 2px; }
+      .sf-hero-discount { font-size: 30px; }
+      .sf-body { padding: 14px 14px 18px; }
+      .sf-hero { padding: 16px 14px 12px; }
+    }
+  </style>
+
+  <!-- CTA Button — hidden until plan loads -->
+  <button type="button" class="sf-cta-button" id="sf-open-modal-{{ block.id }}" style="display:none;">
+    Subscribe &amp; Save
+  </button>
+
+  <!-- Modal Overlay -->
+  <div class="sf-modal-overlay" id="sf-modal-overlay-{{ block.id }}">
+    <div class="sf-modal">
+      <button type="button" class="sf-modal-close" id="sf-close-modal-{{ block.id }}" aria-label="Close">✕</button>
+
+      <!-- Hero — discount filled by JS -->
+      <div class="sf-hero">
+        <p class="sf-hero-discount" id="sf-hero-discount-{{ block.id }}">Save —%</p>
+        <p class="sf-hero-title">Subscribe &amp; get automatic deliveries</p>
+        <p class="sf-hero-note">Reminders on WhatsApp · Cancel anytime</p>
+      </div>
+
+      <!-- Stats Row -->
+      <div class="sf-stats">
+        <div class="sf-stat">
+          <span class="sf-stat-pill">{{ subscriber_count }}</span>
+          <span class="sf-stat-lbl">Subscribers</span>
+        </div>
+        <div class="sf-stat">
+          <span class="sf-stat-pill">★★★★★ 4.9</span>
+          <span class="sf-stat-lbl">Rating</span>
+        </div>
+        <div class="sf-stat">
+          <span class="sf-stat-pill">100%</span>
+          <span class="sf-stat-lbl">Satisfaction</span>
+        </div>
+      </div>
+
+      <!-- Body -->
+      <div class="sf-body">
+
+        <!-- Frequency — rendered by JS from plan -->
+        <span class="sf-section-label">Delivery frequency</span>
+        <div class="sf-freq-row" id="sf-freq-row-{{ block.id }}">
+          <!-- populated by JS -->
+        </div>
+
+        <!-- Benefits — discount text filled by JS -->
+        <div class="sf-benefits">
+          <div class="sf-benefit">
+            <span class="sf-check">✓</span>
+            <span><strong id="sf-benefit-discount-{{ block.id }}">Save —%</strong> on every order</span>
+          </div>
+          <div class="sf-benefit">
+            <span class="sf-check">✓</span>
+            <span>Free WhatsApp reminders before delivery</span>
+          </div>
+          <div class="sf-benefit">
+            <span class="sf-check">✓</span>
+            <span>Pause or cancel anytime with one tap</span>
+          </div>
+        </div>
+
+        <!-- Message -->
+        <div class="sf-msg" id="sf-msg-{{ block.id }}"></div>
+
+        <!-- Form -->
+        <div class="sf-fields" id="sf-form-{{ block.id }}">
+
+          <div class="sf-field">
+            <label class="sf-field-label">Your name</label>
+            <input type="text" class="sf-input" id="sf-name-{{ block.id }}" placeholder="John" autocomplete="name" />
+          </div>
+
+          <div class="sf-field">
+            <label class="sf-field-label">Email <span class="sf-required">*</span></label>
+            <input type="email" class="sf-input" id="sf-email-{{ block.id }}" placeholder="you@example.com" autocomplete="email" required />
+          </div>
+
+          <div class="sf-field">
+            <label class="sf-field-label">WhatsApp number <span class="sf-required">*</span></label>
+            <div class="sf-phone-row">
+              <select class="sf-select" id="sf-country-{{ block.id }}" aria-label="Country code">
+                <option value="+91">+91</option>
+              </select>
+              <input type="tel" class="sf-input" id="sf-phone-{{ block.id }}" placeholder="98765 43210" autocomplete="tel" required />
+            </div>
+          </div>
+
+        </div>
+
+        <button type="button" class="sf-submit-btn" id="sf-submit-{{ block.id }}">
+          Subscribe &amp; Save
+        </button>
+
+        <p class="sf-note">No auto-charges without your confirmation · Cancel free anytime</p>
+
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  var blockId = {{ block.id | json }};
+  var container = document.getElementById('subflow-widget-' + blockId);
+  if (!container) return;
+
+  var appUrl = container.dataset.appUrl;
+  var shopDomain = container.dataset.shop;
+  var numericProductId = container.dataset.productId;
+  var productId = 'gid://shopify/Product/' + numericProductId;
+  var productTitle = container.dataset.productTitle;
+  var variantId = 'gid://shopify/ProductVariant/' + container.dataset.variantId;
+  var variantTitle = container.dataset.variantTitle;
+  var price = parseFloat(container.dataset.price) || 0;
+  var currency = container.dataset.currency || 'INR';
+
+  // These get set after plan is fetched
+  var activePlanId = null;
+  var activePlanName = null;
+  var discountPercent = 0;
+  var selectedDays = null;
+  var selectedCountryCode = '+91';
+
+  var openBtn = document.getElementById('sf-open-modal-' + blockId);
+  var closeBtn = document.getElementById('sf-close-modal-' + blockId);
+  var modalOverlay = document.getElementById('sf-modal-overlay-' + blockId);
+  var submitBtn = document.getElementById('sf-submit-' + blockId);
+  var msgEl = document.getElementById('sf-msg-' + blockId);
+  var freqRow = document.getElementById('sf-freq-row-' + blockId);
+  var heroDiscount = document.getElementById('sf-hero-discount-' + blockId);
+  var benefitDiscount = document.getElementById('sf-benefit-discount-' + blockId);
+
+  // ─── STEP 1: Fetch plan for this product ────────────────────────────────────
+  fetch(appUrl + '/api/plans?shop=' + shopDomain + '&productId=' + encodeURIComponent(productId))
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      if (!data.plans || data.plans.length === 0) {
+        // No plan for this product — keep widget hidden
+        return;
+      }
+
+      var plan = data.plans[0];
+      activePlanId = plan.id;
+      activePlanName = plan.name;
+      discountPercent = plan.discountPercentage;
+
+      // Update discount text in hero + benefits + buttons
+      heroDiscount.textContent = 'Save ' + discountPercent + '%';
+      benefitDiscount.textContent = 'Save ' + discountPercent + '%';
+      openBtn.textContent = 'Save ' + discountPercent + '% \u2014 Subscribe & Save';
+      submitBtn.textContent = 'Save ' + discountPercent + '% now';
+
+      // Render frequency buttons from plan
+      var freqs = plan.frequencies.slice().sort(function (a, b) { return a - b; });
+      freqRow.innerHTML = '';
+      freqs.forEach(function (days, i) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'sf-freq-btn' + (i === 0 ? ' selected' : '');
+        btn.dataset.days = days;
+        btn.textContent = days + ' days';
+        freqRow.appendChild(btn);
+      });
+
+      // Set default selected day to first frequency
+      selectedDays = freqs[0];
+
+      // Attach frequency click handlers
+      freqRow.querySelectorAll('.sf-freq-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          freqRow.querySelectorAll('.sf-freq-btn').forEach(function (b) {
+            b.classList.remove('selected');
+          });
+          btn.classList.add('selected');
+          selectedDays = parseInt(btn.dataset.days, 10);
+        });
+      });
+
+      // Show the CTA button now that we have a valid plan
+      openBtn.style.display = 'block';
+    })
+    .catch(function (err) {
+      // Network error — silently keep widget hidden
+      console.warn('[SubFlow] Failed to load plan:', err);
+    });
+
+  // ─── Modal open/close ────────────────────────────────────────────────────────
+  openBtn.addEventListener('click', function () {
+    modalOverlay.classList.add('active');
+    document.body.style.overflow = 'hidden';
+  });
+
+  function closeModal() {
+    modalOverlay.classList.remove('active');
+    document.body.style.overflow = '';
+  }
+
+  closeBtn.addEventListener('click', closeModal);
+
+  modalOverlay.addEventListener('click', function (e) {
+    if (e.target === modalOverlay) closeModal();
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && modalOverlay.classList.contains('active')) closeModal();
+  });
+
+  // ─── Country code ────────────────────────────────────────────────────────────
+  var countrySelect = document.getElementById('sf-country-' + blockId);
+  countrySelect.addEventListener('change', function () {
+    selectedCountryCode = this.value;
+  });
+
+  // ─── Variant change ──────────────────────────────────────────────────────────
+  document.addEventListener('variant:change', function (e) {
+    if (e.detail && e.detail.variant) {
+      var v = e.detail.variant;
+      container.dataset.variantId = v.id;
+      container.dataset.variantTitle = v.title || '';
+      container.dataset.price = v.price ? (v.price / 100).toFixed(2) : '0';
+      variantId = 'gid://shopify/ProductVariant/' + v.id;
+      variantTitle = v.title || '';
+      price = v.price ? v.price / 100 : 0;
+    }
+  });
+
+  // ─── Helpers ─────────────────────────────────────────────────────────────────
+  function showMsg(type, text) {
+    msgEl.className = 'sf-msg ' + type;
+    msgEl.textContent = text;
+  }
+
+  function clearMsg() {
+    msgEl.className = 'sf-msg';
+    msgEl.textContent = '';
+  }
+
+  // ─── Submit ──────────────────────────────────────────────────────────────────
+  submitBtn.addEventListener('click', function () {
+    clearMsg();
+
+    if (!activePlanId) {
+      showMsg('error', 'No subscription plan available for this product.');
+      return;
+    }
+
+    var name = document.getElementById('sf-name-' + blockId).value.trim();
+    var email = document.getElementById('sf-email-' + blockId).value.trim();
+    var phone = document.getElementById('sf-phone-' + blockId).value.trim().replace(/[\s\-\+]/g, '');
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      showMsg('error', 'Please enter a valid email address.');
+      return;
+    }
+    if (!phone || phone.length < 10) {
+      showMsg('error', 'Please enter a valid phone number (10+ digits).');
+      return;
+    }
+
+    submitBtn.disabled = true;
+    var originalText = submitBtn.textContent;
+    submitBtn.textContent = 'Processing…';
+
+    var fullPhone = selectedCountryCode.replace('+', '') + phone;
+    var discountedPrice = (price * (100 - discountPercent) / 100).toFixed(2);
+
+    var payload = {
+      shopDomain: shopDomain,
+      customerName: name,
+      customerEmail: email,
+      customerPhone: fullPhone,
+      countryCode: selectedCountryCode,
+      productId: productId,
+      productTitle: productTitle,
+      variantId: variantId,
+      variantTitle: variantTitle,
+      frequencyDays: selectedDays,
+      originalPrice: price,
+      discountedPrice: discountedPrice,
+      discountPercent: discountPercent,
+      currency: currency,
+      planId: activePlanId,       // ← now included
+      planName: activePlanName    // ← for display in admin
+    };
+
+    fetch(appUrl + '/api/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.success) {
+          showMsg('success', 'Subscribed! Check your WhatsApp for confirmation.');
+          submitBtn.textContent = 'Subscribed ✓';
+          document.getElementById('sf-name-' + blockId).value = '';
+          document.getElementById('sf-email-' + blockId).value = '';
+          document.getElementById('sf-phone-' + blockId).value = '';
+          setTimeout(closeModal, 2000);
+        } else {
+          showMsg('error', data.error || 'Something went wrong. Please try again.');
+          submitBtn.disabled = false;
+          submitBtn.textContent = originalText;
+        }
+      })
+      .catch(function () {
+        showMsg('error', 'Network error. Please try again.');
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+      });
+  });
+
+})();
+</script>
+
+{% schema %}
+{
+  "name": "Subscribe & Save",
+  "target": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "app_url",
+      "label": "SubFlow App URL",
+      "info": "Your Shopify app tunnel URL, e.g. https://your-app.trycloudflare.com"
+    },
+    {
+      "type": "text",
+      "id": "subscriber_count",
+      "label": "Subscriber count (display only)",
+      "placeholder": "2,341",
+      "default": "2,341"
+    }
+  ]
+}
+{% endschema %}
