@@ -37,17 +37,18 @@ export const action = async ({ request }) => {
     for (const sub of subs) {
       if (!sub.customerPhone) continue;
 
-      const result = await sendWhatsAppMessage(sub.customerPhone, sub);
+const result = await sendWhatsAppMessage(sub.shopDomain, sub.customerPhone, sub);
 
       if (result.success) {
         await markReminderSent(sub._id);
       }
 
-      results.push({
-        subscriptionId: sub._id,
-        phone: sub.customerPhone,
-        ...result,
-      });
+  results.push({
+  subscriptionId: sub._id,
+  shopDomain: sub.shopDomain,
+  phone: sub.customerPhone,
+  ...result,
+});
     }
 
     return json({
@@ -78,7 +79,7 @@ export const action = async ({ request }) => {
     );
   }
 
-  const result = await sendWhatsAppMessage(sub.customerPhone, sub);
+const result = await sendWhatsAppMessage(sub.shopDomain, sub.customerPhone, sub);
 
   if (result.success) {
     await markReminderSent(sub._id);

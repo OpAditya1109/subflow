@@ -270,4 +270,44 @@ export async function getSubscriptionStats(shopDomain) {
   };
 }
 
+// GDPR customers/data_request support
+export async function getSubscriptionsByCustomer(shopDomain, { email, phone } = {}) {
+  await connectDB();
+  const or = [];
+  if (email) or.push({ customerEmail: email.toLowerCase().trim() });
+  if (phone) or.push({ customerPhone: phone.trim() });
+  if (or.length === 0) return [];
+
+  return Subscription.find({ shopDomain, $or: or }).lean();
+}
+
+// GDPR customers/redact support
+export async function redactCustomerData(shopDomain, { email, phone } = {}) {
+  await connectDB();
+  const or = [];
+  if (email) or.push({ customerEmail: email.toLowerCase().trim() });
+  if (phone) or.push({ customerPhone: phone.trim() });
+  if (or.length === 0) return { matched: 0 };
+
+  const result = await Subscription.updateMany(
+    { shopDomain, $or: or },
+    {
+      $set: {
+        customerEmail: "redacted@deleted.local",
+        customerName: "Redacted",
+        customerPhone: null,
+      },
+    }
+  );
+  return { matched: result.modifiedCount };
+}
+
+// GDPR shop/redact support
+export async function redactShopData(shopDomain) {
+  await connectDB();
+  const result = await Subscription.deleteMany({ shopDomain });
+  return { deleted: result.deletedCount };
+}
+
+
 export default Subscription;
