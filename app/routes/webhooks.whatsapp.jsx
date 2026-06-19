@@ -1,6 +1,5 @@
 import crypto from "crypto";
-import { updateTemplateStatus } from "../models/Shop.server.js";
-import Shop from "../models/Shop.server.js";
+import Shop, { updateTemplateStatus } from "../models/Shop.server.js";
 
 export const loader = async ({ request }) => {
   const url = new URL(request.url);
