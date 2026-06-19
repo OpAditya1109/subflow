@@ -1,17 +1,8 @@
 // app/services/whatsapp.server.js
-// Meta WhatsApp Cloud API — sends renewal reminder messages
+import { getWhatsAppCredentials } from "../models/Shop.server.js";
 
-const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
-const WA_API_URL = `https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`;
+const GRAPH_VERSION = process.env.META_GRAPH_VERSION || "v22.0";
 
-/**
- * Build the ordered body-variable list for the "subflow_renewal_reminder" template.
- * Order must match {{1}}..{{5}} exactly as set up in Meta WhatsApp Manager:
- *   {{1}} name   {{2}} product   {{3}} renewal date   {{4}} frequency days   {{5}} price
- *
- * @param {object} sub - Subscription document
- * @returns {string[]}
- */
 export function buildTemplateVariables(sub) {
   const renewalDate = new Date(sub.nextRenewalAt).toLocaleDateString("en-IN", {
     day: "numeric",
@@ -26,29 +17,21 @@ export function buildTemplateVariables(sub) {
   return [name, product, renewalDate, String(sub.frequencyDays), price];
 }
 
-/**
- * Send the approved "subflow_renewal_reminder" WhatsApp template to a customer.
- *
- * @param {string} toPhone  - Recipient phone number with country code, no "+" e.g. "919876543210"
- * @param {object} sub      - Subscription document (used to fill the template variables)
- * @returns {Promise<{ success: boolean, messageId?: string, error?: string }>}
- */
-export async function sendWhatsAppMessage(toPhone, sub) {
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+export async function sendWhatsAppMessage(shopDomain, toPhone, sub) {
+  const credentials = await getWhatsAppCredentials(shopDomain);
 
-  if (!accessToken) {
-    console.error("❌ WHATSAPP_ACCESS_TOKEN not set in .env");
-    return { success: false, error: "WHATSAPP_ACCESS_TOKEN not configured" };
+  if (!credentials) {
+    console.error(`❌ No WhatsApp connection for shop ${shopDomain}`);
+    return {
+      success: false,
+      error: "This store hasn't connected a WhatsApp Business number yet.",
+    };
   }
 
-  if (!PHONE_NUMBER_ID) {
-    console.error("❌ WHATSAPP_PHONE_NUMBER_ID not set in .env");
-    return { success: false, error: "WHATSAPP_PHONE_NUMBER_ID not configured" };
-  }
+  const { accessToken, phoneNumberId } = credentials;
+  const waApiUrl = `https://graph.facebook.com/${GRAPH_VERSION}/${phoneNumberId}/messages`;
 
-  // Normalise phone: strip spaces, dashes, leading "+"
   const phone = toPhone.replace(/[\s\-\+]/g, "");
-
   const variables = buildTemplateVariables(sub);
 
   const payload = {
@@ -68,7 +51,7 @@ export async function sendWhatsAppMessage(toPhone, sub) {
   };
 
   try {
-    const res = await fetch(WA_API_URL, {
+    const res = await fetch(waApiUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -80,14 +63,13 @@ export async function sendWhatsAppMessage(toPhone, sub) {
     const data = await res.json();
 
     if (!res.ok) {
-      const errMsg =
-        data?.error?.message || `HTTP ${res.status}`;
+      const errMsg = data?.error?.message || `HTTP ${res.status}`;
       console.error("❌ WhatsApp API error:", JSON.stringify(data));
       return { success: false, error: errMsg };
     }
 
     const messageId = data?.messages?.[0]?.id;
-    console.log(`✅ WhatsApp sent to ${phone}, id: ${messageId}`);
+    console.log(`✅ WhatsApp sent to ${phone} for ${shopDomain}, id: ${messageId}`);
     return { success: true, messageId };
   } catch (err) {
     console.error("❌ WhatsApp fetch error:", err.message);
@@ -95,13 +77,6 @@ export async function sendWhatsAppMessage(toPhone, sub) {
   }
 }
 
-/**
- * Build the renewal reminder message for a subscriber (plain-text preview only,
- * not sent directly — the actual send uses the approved template above).
- *
- * @param {object} sub - Subscription document
- * @returns {string}
- */
 export function buildRenewalReminderMessage(sub) {
   const renewalDate = new Date(sub.nextRenewalAt).toLocaleDateString("en-IN", {
     day: "numeric",
@@ -116,9 +91,7 @@ export function buildRenewalReminderMessage(sub) {
     `Hi ${name}! 👋\n\n` +
     `This is a reminder that your subscription for *${product}* is due for renewal on *${renewalDate}*.\n\n` +
     `📦 Frequency: Every ${sub.frequencyDays} days\n` +
-    (sub.discountedPrice > 0
-      ? `💰 Price: ₹${sub.discountedPrice}\n\n`
-      : "\n") +
+    (sub.discountedPrice > 0 ? `💰 Price: ₹${sub.discountedPrice}\n\n` : "\n") +
     `If you have any questions, feel free to reply to this message.\n\n` +
     `Thank you for subscribing! 🙏`
   );
