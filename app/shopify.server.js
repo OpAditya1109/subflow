@@ -1,5 +1,6 @@
 // app/shopify.server.js
-// V1: Removed SUBSCRIPTION_CONTRACTS and BILLING_ATTEMPTS webhook registrations.
+// Webhook registration is handled automatically in the afterAuth hook.
+// No manual webhook setup needed.
 
 import 'dotenv/config.js';
 import "@shopify/shopify-app-remix/adapters/node";
@@ -176,7 +177,13 @@ const shopify = shopifyApp({
         console.log(`⚠️ Session scope was MISSING — set from .env`);
       }
 
-      shopify.registerWebhooks({ session });
+      // Register webhooks — AWAIT is critical here
+      try {
+        await shopify.registerWebhooks({ session });
+        console.log(`✅ Webhooks registered for ${session.shop}`);
+      } catch (err) {
+        console.error(`❌ Webhook registration failed: ${err.message}`);
+      }
 
       try {
         const { saveShop } = await import("./models/Shop.server.js");

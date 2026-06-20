@@ -41,7 +41,7 @@ export const action = async ({ request }) => {
   const settings = {
     enableSubscriptions: formData.get("enableSubscriptions") === "true",
     defaultFrequency: Number(formData.get("defaultFrequency")),
-    emailNotifications: formData.get("emailNotifications") === "true",
+  
     widgetPosition: formData.get("widgetPosition"),
   };
 
@@ -180,9 +180,7 @@ export default function SettingsPage() {
   const [defaultFrequency, setDefaultFrequency] = useState(
     String(settings.defaultFrequency || 30)
   );
-  const [emailNotifications, setEmailNotifications] = useState(
-    settings.emailNotifications !== false
-  );
+
   const [widgetPosition, setWidgetPosition] = useState(
     settings.widgetPosition || "before-atc"
   );
@@ -191,7 +189,6 @@ export default function SettingsPage() {
     const fd = new FormData();
     fd.append("enableSubscriptions", String(enableSubscriptions));
     fd.append("defaultFrequency", defaultFrequency);
-    fd.append("emailNotifications", String(emailNotifications));
     fd.append("widgetPosition", widgetPosition);
     submit(fd, { method: "POST" });
   };
@@ -289,17 +286,7 @@ export default function SettingsPage() {
           </BlockStack>
         </Card>
 
-        <Card>
-          <BlockStack gap="400">
-            <Text variant="headingMd">Notifications</Text>
-            <Checkbox
-              label="Email notifications"
-              helpText="Send email to customers before each renewal"
-              checked={emailNotifications}
-              onChange={setEmailNotifications}
-            />
-          </BlockStack>
-        </Card>
+     
 
         <InlineStack align="end">
           <Button variant="primary" onClick={handleSave} loading={isSaving}>

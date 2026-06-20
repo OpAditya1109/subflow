@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { connectDB } from "../models/db.server.js";
 import Shop, { updateTemplateStatus } from "../models/Shop.server.js";
 
 export const loader = async ({ request }) => {
@@ -34,6 +35,14 @@ export const action = async ({ request }) => {
     payload = JSON.parse(rawBody);
   } catch {
     return new Response("Invalid JSON", { status: 400 });
+  }
+
+  // Ensure DB connection before any queries
+  try {
+    await connectDB();
+  } catch (err) {
+    console.error("❌ Database connection failed:", err.message);
+    return new Response("Database connection error", { status: 500 });
   }
 
   for (const entry of payload.entry || []) {

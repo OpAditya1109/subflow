@@ -47,12 +47,17 @@ const SubscriptionPlanSchema = new mongoose.Schema(
     frequencies: {
       type: [Number], // array of day values, e.g. [15, 30, 45, 60]
       required: true,
-      enum: [7, 15, 30, 60, 90],
-
-      validate: {
-        validator: (arr) => arr.length > 0,
-        message: "At least one frequency is required",
-      },
+      validate: [
+        {
+          validator: (arr) => arr.length > 0,
+          message: "At least one frequency is required",
+        },
+        {
+          validator: (arr) =>
+            arr.every((freq) => [7, 15, 30, 60, 90].includes(freq)),
+          message: "All frequencies must be one of: 7, 15, 30, 60, 90 days",
+        },
+      ],
     },
     isActive: {
       type: Boolean,

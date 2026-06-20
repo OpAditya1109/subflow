@@ -1,6 +1,7 @@
 // app/routes/api.subscribe.jsx
 // PUBLIC endpoint — called from the storefront theme extension widget.
 // No Shopify admin auth required; CORS-friendly.
+// Creates new subscriptions and increments plan subscriber counts.
 
 import { json } from "@remix-run/node";
 import { createSubscription } from "../models/Subscription.server.js";
@@ -8,6 +9,7 @@ import {
   getPlanById,
   incrementSubscriberCount,
 } from "../models/SubscriptionPlan.server.js";
+
 // ─── CORS helper ─────────────────────────────────────────────────────────────
 
 function corsHeaders(origin) {
@@ -68,9 +70,6 @@ export const action = async ({ request }) => {
     currency = "INR",
   } = body;
 
-
-
-  
   // ── Validation ────────────────────────────────────────────────────────────
   const missing = [];
   if (!shopDomain) missing.push("shopDomain");
@@ -107,16 +106,26 @@ export const action = async ({ request }) => {
   // ── Save to MongoDB ───────────────────────────────────────────────────────
   const freqDays = Number(frequencyDays);
   const nextRenewalAt = new Date(Date.now() + freqDays * 24 * 60 * 60 * 1000);
-  let discountPct = 0;
-if (planId) {
-  const plan = await getPlanById(planId, shopDomain);
-  if (plan) {
-    discountPct = plan.discountPercentage;
-    await incrementSubscriberCount(planId);
-  }
-}
 
   try {
+    let discountPct = 0;
+
+    // Get plan discount and increment subscriber count
+    // Both operations wrapped in try/catch so we don't fail if plan lookup fails
+    if (planId) {
+      try {
+        const plan = await getPlanById(planId, shopDomain);
+        if (plan) {
+          discountPct = plan.discountPercentage;
+          // Increment INSIDE try/catch — if this fails, we still save the subscription
+          await incrementSubscriberCount(planId);
+        }
+      } catch (planErr) {
+        console.warn(`⚠️ Plan lookup/increment failed for ${planId}:`, planErr.message);
+        // Continue with subscription creation anyway
+      }
+    }
+
     const subscription = await createSubscription({
       shopDomain: shopDomain.toLowerCase().trim(),
       customerName: customerName || "",
@@ -127,13 +136,12 @@ if (planId) {
       variantId,
       variantTitle: variantTitle || "",
       frequencyDays: freqDays,
-    
       originalPrice: Number(originalPrice) || 0,
       discountedPrice: Number(discountedPrice) || Number(originalPrice) || 0,
       currency,
       status: "active",
-       planId: planId || null,
-  discountPercentage: discountPct,
+      planId: planId || null,
+      discountPercentage: discountPct,
       nextRenewalAt,
     });
 

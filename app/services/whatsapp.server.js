@@ -76,23 +76,3 @@ export async function sendWhatsAppMessage(shopDomain, toPhone, sub) {
     return { success: false, error: err.message };
   }
 }
-
-export function buildRenewalReminderMessage(sub) {
-  const renewalDate = new Date(sub.nextRenewalAt).toLocaleDateString("en-IN", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-
-  const name = sub.customerName ? sub.customerName.split(" ")[0] : "there";
-  const product = sub.productTitle || "your subscribed product";
-
-  return (
-    `Hi ${name}! 👋\n\n` +
-    `This is a reminder that your subscription for *${product}* is due for renewal on *${renewalDate}*.\n\n` +
-    `📦 Frequency: Every ${sub.frequencyDays} days\n` +
-    (sub.discountedPrice > 0 ? `💰 Price: ₹${sub.discountedPrice}\n\n` : "\n") +
-    `If you have any questions, feel free to reply to this message.\n\n` +
-    `Thank you for subscribing! 🙏`
-  );
-}

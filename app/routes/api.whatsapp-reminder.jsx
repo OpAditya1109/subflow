@@ -1,15 +1,60 @@
 // app/routes/api.whatsapp-reminder.jsx
-// Two uses:
-//   POST /api/whatsapp-reminder  { subscriptionId, shopDomain }  → send to one subscriber (merchant button)
-//   POST /api/whatsapp-reminder  { cron: true, secret: "..." }    → bulk send to all due subscribers (cron job)
+// Three uses:
+//   GET  /api/whatsapp-reminder                          → automatic Vercel Cron trigger (runs on a schedule, see vercel.json)
+//   POST /api/whatsapp-reminder  { subscriptionId }        → send to one subscriber (merchant button, requires admin auth)
+//   POST /api/whatsapp-reminder  { cron: true, secret }    → bulk send to all due subscribers (manual/external trigger)
 
 import { json } from "@remix-run/node";
+import { authenticate } from "../shopify.server";
 import {
   getSubscriptionById,
   getSubscriptionsDueForReminder,
   markReminderSent,
 } from "../models/Subscription.server.js";
 import { sendWhatsAppMessage } from "../services/whatsapp.server.js";
+
+async function runBulkReminders(daysAhead = 3) {
+  const subs = await getSubscriptionsDueForReminder(daysAhead);
+
+  const results = [];
+  for (const sub of subs) {
+    if (!sub.customerPhone) continue;
+
+    const result = await sendWhatsAppMessage(sub.shopDomain, sub.customerPhone, sub);
+
+    if (result.success) {
+      await markReminderSent(sub._id);
+    }
+
+    results.push({
+      subscriptionId: sub._id,
+      shopDomain: sub.shopDomain,
+      phone: sub.customerPhone,
+      ...result,
+    });
+  }
+
+  return { processed: results.length, results };
+}
+
+// ── Automatic trigger (Vercel Cron) ─────────────────────────────────────────
+// Vercel calls this on the schedule defined in vercel.json and automatically
+// attaches `Authorization: Bearer ${CRON_SECRET}` when a CRON_SECRET env var
+// is set on the project — no manual button needed any more.
+export const loader = async ({ request }) => {
+  const cronSecret = process.env.CRON_SECRET;
+  const authHeader = request.headers.get("authorization") || "";
+
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    return json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const url = new URL(request.url);
+  const daysAhead = Number(url.searchParams.get("daysAhead")) || 3;
+
+  const summary = await runBulkReminders(daysAhead);
+  return json(summary);
+};
 
 export const action = async ({ request }) => {
   if (request.method !== "POST") {
@@ -23,7 +68,7 @@ export const action = async ({ request }) => {
     return json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  // ── Bulk cron mode ────────────────────────────────────────────────────────
+  // ── Bulk cron mode (manual/external trigger, e.g. curl or another scheduler) ──
   if (body.cron === true) {
     const cronSecret = process.env.CRON_SECRET;
     if (cronSecret && body.secret !== cronSecret) {
@@ -31,40 +76,18 @@ export const action = async ({ request }) => {
     }
 
     const daysAhead = Number(body.daysAhead) || 3;
-    const subs = await getSubscriptionsDueForReminder(daysAhead);
-
-    const results = [];
-    for (const sub of subs) {
-      if (!sub.customerPhone) continue;
-
-const result = await sendWhatsAppMessage(sub.shopDomain, sub.customerPhone, sub);
-
-      if (result.success) {
-        await markReminderSent(sub._id);
-      }
-
-  results.push({
-  subscriptionId: sub._id,
-  shopDomain: sub.shopDomain,
-  phone: sub.customerPhone,
-  ...result,
-});
-    }
-
-    return json({
-      processed: results.length,
-      results,
-    });
+    const summary = await runBulkReminders(daysAhead);
+    return json(summary);
   }
 
   // ── Single reminder mode (merchant button) ─────────────────────────────────
-  const { subscriptionId, shopDomain } = body;
+  const { session } = await authenticate.admin(request);
+  const shopDomain = session.shop;
 
-  if (!subscriptionId || !shopDomain) {
-    return json(
-      { error: "subscriptionId and shopDomain are required" },
-      { status: 400 }
-    );
+  const { subscriptionId } = body;
+
+  if (!subscriptionId) {
+    return json({ error: "subscriptionId is required" }, { status: 400 });
   }
 
   const sub = await getSubscriptionById(subscriptionId, shopDomain);
@@ -79,7 +102,7 @@ const result = await sendWhatsAppMessage(sub.shopDomain, sub.customerPhone, sub)
     );
   }
 
-const result = await sendWhatsAppMessage(sub.shopDomain, sub.customerPhone, sub);
+  const result = await sendWhatsAppMessage(sub.shopDomain, sub.customerPhone, sub);
 
   if (result.success) {
     await markReminderSent(sub._id);

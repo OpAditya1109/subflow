@@ -1,5 +1,6 @@
 // app/models/RenewalLog.server.js
 // Immutable audit trail — one doc per renewal attempt.
+// Tracks all subscription renewal attempts (success/failed/skipped) for analytics and debugging.
 
 import mongoose from "mongoose";
 import { connectDB } from "./db.server.js";
@@ -18,9 +19,12 @@ const RenewalLogSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    // customerId is optional — subscriptions without a customerId can still be logged
+    // (e.g., subscriptions created through the storefront widget with no Shopify order linked yet)
     customerId: {
       type: String,
-      required: true,
+      required: false,
+      default: null,
     },
     customerEmail: {
       type: String,
@@ -50,9 +54,10 @@ const RenewalLogSchema = new mongoose.Schema(
       type: Number,
       default: null,
     },
+    // Currency defaults to INR for Indian merchants
     currency: {
       type: String,
-      default: "USD",
+      default: "INR",
     },
     // Error message if failed
     errorMessage: {

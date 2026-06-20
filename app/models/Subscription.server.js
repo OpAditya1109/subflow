@@ -63,7 +63,7 @@ const SubscriptionSchema = new mongoose.Schema(
     frequencyDays: {
       type: Number,
       required: true,
-      enum: [7,15, 30, 60, 90],
+      enum: [7, 15, 30, 60, 90],
     },
     discountPercentage: {
       type: Number,
@@ -142,6 +142,23 @@ const Subscription =
 
 export async function createSubscription(data) {
   await connectDB();
+
+  // Prevent duplicate subscriptions: same email + variant + shop
+  const existing = await Subscription.findOne({
+    shopDomain: data.shopDomain,
+    customerEmail: data.customerEmail,
+    variantId: data.variantId,
+    status: { $in: ["active", "paused"] }, // Don't count cancelled/expired
+  });
+
+  if (existing) {
+    const err = new Error(
+      "A subscription for this email and product variant already exists."
+    );
+    err.code = "DUPLICATE_SUBSCRIPTION";
+    throw err;
+  }
+
   const sub = new Subscription(data);
   return sub.save();
 }
@@ -231,7 +248,7 @@ export async function getSubscriptionsDueForRenewal() {
 }
 
 // Subscriptions due for reminder — renewal within next N days, no reminder sent recently
-export async function getSubscriptionsDueForReminder(daysAhead = 3) {
+export async function getSubscriptionsDueForReminder(daysAhead = 2) {
   await connectDB();
   const now = new Date();
   const futureDate = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000);

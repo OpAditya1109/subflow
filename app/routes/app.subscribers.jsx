@@ -16,8 +16,10 @@ import {
 import { authenticate } from "../shopify.server";
 import {
   getSubscriptions,
+  getSubscriptionById,
   cancelSubscription,
 } from "../models/Subscription.server.js";
+import { sendWhatsAppMessage } from "../services/whatsapp.server.js";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -44,24 +46,34 @@ export const action = async ({ request }) => {
     const subId = formData.get("subscriptionId");
 
     try {
-      const appUrl = process.env.SHOPIFY_APP_URL || "http://localhost:3000";
-      const res = await fetch(`${appUrl}/api/whatsapp-reminder`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          subscriptionId: subId,
-          shopDomain: session.shop,
-        }),
-      });
+      // Get subscription from DB directly (server-to-server, no HTTP needed)
+      const sub = await getSubscriptionById(subId, session.shop);
 
-      const data = await res.json();
+      if (!sub) {
+        return json({ error: "Subscription not found." });
+      }
 
-      if (data.success) {
+      if (!sub.customerPhone) {
+        return json({
+          error: "This subscriber has no phone number on record.",
+        });
+      }
+
+      // Call sendWhatsAppMessage directly — no need to fetch our own endpoint
+      // This avoids authentication header issues and reduces network hops
+      const result = await sendWhatsAppMessage(
+        sub.shopDomain,
+        sub.customerPhone,
+        sub
+      );
+
+      if (result.success) {
         return json({ success: `✅ WhatsApp reminder sent!` });
       } else {
-        return json({ error: data.error || "Failed to send reminder." });
+        return json({ error: result.error || "Failed to send reminder." });
       }
     } catch (err) {
+      console.error("❌ Send reminder error:", err.message);
       return json({ error: `Error: ${err.message}` });
     }
   }
@@ -166,10 +178,10 @@ export default function SubscribersPage() {
 
       // Product
       <Text variant="bodySm">{sub.productTitle || sub.productId}</Text>,
-// Plan
-<Text variant="bodySm">
-  {sub.planId?.name || "—"}
-</Text>,
+
+      // Plan
+      <Text variant="bodySm">{sub.planId?.name || "—"}</Text>,
+
       // Frequency
       `Every ${sub.frequencyDays} days`,
 
@@ -264,13 +276,12 @@ export default function SubscribersPage() {
                 "text",
                 "text",
                 "text",
-                "text",
               ]}
               headings={[
                 "Customer",
                 "Phone",
                 "Product",
-                  "Plan",
+                "Plan",
                 "Frequency",
                 "Next Renewal",
                 "Status",
